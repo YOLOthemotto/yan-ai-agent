@@ -32,5 +32,3 @@ build/
 ### VS Code ###
 .vscode/
 /src/main/resources/application-local.yml
-/src/main/resources/application-openai.yml
-/src/main/resources/application-openai-responses.yml

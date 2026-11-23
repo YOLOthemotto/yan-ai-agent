@@ -2,7 +2,7 @@ spring:
   application:
     name: yan-ai-agent
   profiles:
-    active: local,openai-responses
+    active: local
 server:
   port: 8123
   servlet:
