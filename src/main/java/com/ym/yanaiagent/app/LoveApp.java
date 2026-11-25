@@ -3,8 +3,6 @@ package com.ym.yanaiagent.app;
 import lombok.extern.slf4j.Slf4j;
 import com.ym.yanaiagent.advisor.MyLoggerAdvisor;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.session.DefaultSessionService;
-import org.springframework.ai.session.InMemorySessionRepository;
 import org.springframework.ai.session.SessionService;
 import org.springframework.ai.session.advisor.SessionAdvisors;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
@@ -127,10 +125,7 @@ public class LoveApp {
 
     private final ChatClient chatClient;
 
-    public LoveApp(ChatClient.Builder builder) {
-        SessionService sessionService = DefaultSessionService.builder()
-                .sessionRepository(InMemorySessionRepository.builder().build())
-                .build();
+    public LoveApp(ChatClient.Builder builder, SessionService sessionService) {
         List<Advisor> advisors = new ArrayList<>(SessionAdvisors.builder(sessionService).build());
         advisors.add(new MyLoggerAdvisor());
         this.chatClient = builder

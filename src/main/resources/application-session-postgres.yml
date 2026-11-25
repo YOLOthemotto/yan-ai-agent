@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: ${POSTGRES_URL:jdbc:postgresql://localhost:5432/yan_ai_agent}
+    driver-class-name: org.postgresql.Driver
+    username: ${POSTGRES_USERNAME:yanai}
+    password: ${POSTGRES_PASSWORD:yanai123}
+  ai:
+    session:
+      time-to-live: 60d
+      repository:
+        jdbc:
+          initialize-schema: always

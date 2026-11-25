@@ -2,7 +2,7 @@ spring:
   application:
     name: yan-ai-agent
   profiles:
-    active: local
+    active: local,session-postgres
 server:
   port: 8123
   servlet:
