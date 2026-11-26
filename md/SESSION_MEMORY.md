@@ -40,6 +40,42 @@ docker compose up -d postgres
 
 Docker 数据保存在命名卷 `yan-ai-agent-postgres-data` 中。删除容器不会删除该卷；只有明确执行 `docker compose down -v` 才会删除数据。
 
+Docker 使用 `pgvector/pgvector:pg18-trixie` 镜像，包含 PostgreSQL 18 和 pgvector。首次初始化数据卷时，`docker/postgres/init/01-pgvector.sql` 会在 `POSTGRES_DB` 指定的数据库中自动启用 `vector` 扩展，用于存储 Embedding 和执行向量相似度检索。
+
+如果复用已有数据卷，初始化脚本不会重新执行。更换镜像后需要手动启用一次：
+
+```bash
+docker compose up -d --wait postgres
+docker compose exec -T postgres sh -c 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS vector;"'
+```
+
+扩展按数据库启用；新建其他数据库后，也需要在对应数据库中执行 `CREATE EXTENSION IF NOT EXISTS vector;`。启用扩展不会自动创建 RAG 文档表或向量索引。
+
+### PgVector 与 Embedding 配置
+
+项目使用 Spring AI `2.1.0`，通过 `spring-ai-starter-vector-store-pgvector` 自动配置 `VectorStore`。默认的 `session-postgres` Profile 同时启用 PgVector，复用现有 PostgreSQL 数据源；H2 和文件模式不启用 PgVector。
+
+应用启动后会创建 `public.vector_store` 表和 HNSW 索引，使用余弦距离检索。显式指定的 `1536` 维让建表不必调用 Embedding 服务；`remove-existing-vector-store-table: false` 防止启动时删除已有向量表。表在应用首次启动时创建，而不是 Docker 启动时创建。
+
+当前 `text-embedding-3-small` 和 `1536` 维仅为预填参数，尚未验证中转服务是否支持。没有可用模型时可以启动应用，但调用 `VectorStore.add(...)` 或 `similaritySearch(...)` 会请求 Embedding 服务并可能失败。暂时没有接入文档导入或聊天 RAG 检索。
+
+确定服务后，在运行应用的环境变量中设置：
+
+| 环境变量 | 当前默认值 | 用途 |
+|---|---|---|
+| `EMBEDDING_BASE_URL` | 复用 `spring.ai.openai.base-url` | Embedding 服务地址 |
+| `EMBEDDING_API_KEY` | 复用 `spring.ai.openai.api-key` | Embedding 服务密钥 |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | 服务实际支持的 Embedding 模型 |
+| `EMBEDDING_DIMENSIONS` | `1536` | 同时配置模型输出维度和向量表维度 |
+
+Spring AI `2.1.0` 的属性是 `spring.ai.openai.embedding.model` 和 `spring.ai.openai.embedding.dimensions`。维度参数仅适用于支持指定输出维度的模型；如果服务不接受此参数，应删除模型侧的 `dimensions` 配置，保留 PgVector 侧的维度并与模型实际输出保持一致。
+
+`.env.example` 仅为参数示例。Docker Compose 会读取 `.env`，但本项目的 Spring Boot 应用未配置自动读取它；请在 IDEA Run Configuration 或启动进程的环境变量中设置 Embedding 参数。
+
+已有表不会因修改配置自动改变维度。更换模型后需要重新生成已有文档的向量；如果维度也变化，还需迁移向量表或在备份后重建，不能直接复用旧向量。
+
+官方文档：[PgVector](https://docs.spring.io/spring-ai/reference/api/vectordbs/pgvector.html)、[OpenAI Embeddings](https://docs.spring.io/spring-ai/reference/api/embeddings/openai-embeddings.html)。
+
 Spring AI 启动时执行官方 PostgreSQL schema，创建：
 
 - `AI_SESSION`

@@ -3,6 +3,9 @@ spring:
     name: yan-ai-agent
   profiles:
     active: local,session-postgres
+  ai:
+    vectorstore:
+      type: none
 server:
   port: 8123
   servlet:

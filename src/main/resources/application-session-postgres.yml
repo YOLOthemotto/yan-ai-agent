@@ -5,6 +5,24 @@ spring:
     username: ${POSTGRES_USERNAME:yanai}
     password: ${POSTGRES_PASSWORD:yanai123}
   ai:
+    model:
+      embedding: openai
+    openai:
+      embedding:
+        base-url: ${EMBEDDING_BASE_URL:${spring.ai.openai.base-url}}
+        api-key: ${EMBEDDING_API_KEY:${spring.ai.openai.api-key}}
+        model: ${EMBEDDING_MODEL:text-embedding-3-small}
+        dimensions: ${EMBEDDING_DIMENSIONS:1536}
+    vectorstore:
+      type: pgvector
+      pgvector:
+        initialize-schema: true
+        remove-existing-vector-store-table: false
+        schema-name: public
+        table-name: vector_store
+        dimensions: ${EMBEDDING_DIMENSIONS:1536}
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
     session:
       time-to-live: 60d
       repository:
