@@ -57,7 +57,7 @@ docker compose exec -T postgres sh -c 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_
 
 应用启动后会创建 `public.vector_store` 表和 HNSW 索引，使用余弦距离检索。显式指定的 `1536` 维让建表不必调用 Embedding 服务；`remove-existing-vector-store-table: false` 防止启动时删除已有向量表。表在应用首次启动时创建，而不是 Docker 启动时创建。
 
-当前 `text-embedding-3-small` 和 `1536` 维仅为预填参数，尚未验证中转服务是否支持。没有可用模型时可以启动应用，但调用 `VectorStore.add(...)` 或 `similaritySearch(...)` 会请求 Embedding 服务并可能失败。暂时没有接入文档导入或聊天 RAG 检索。
+配置文件中的 `text-embedding-3-small` 和 `1536` 维仅为预填参数。没有可用模型时可以启动应用，但调用 `VectorStore.add(...)` 或 `similaritySearch(...)` 会请求 Embedding 服务并可能失败。目前提供简单的文档入库与搜索方法，尚未接入聊天 RAG 检索。
 
 确定服务后，在运行应用的环境变量中设置：
 
@@ -70,11 +70,29 @@ docker compose exec -T postgres sh -c 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_
 
 Spring AI `2.1.0` 的属性是 `spring.ai.openai.embedding.model` 和 `spring.ai.openai.embedding.dimensions`。维度参数仅适用于支持指定输出维度的模型；如果服务不接受此参数，应删除模型侧的 `dimensions` 配置，保留 PgVector 侧的维度并与模型实际输出保持一致。
 
-`.env.example` 仅为参数示例。Docker Compose 会读取 `.env`，但本项目的 Spring Boot 应用未配置自动读取它；请在 IDEA Run Configuration 或启动进程的环境变量中设置 Embedding 参数。
+`.env.example` 仅为参数示例。`application.yaml` 通过 `spring.config.import: optional:file:.env[.properties]` 自动加载工作目录下的 `.env`，应用与所有 `@SpringBootTest` 共用，不需要在 IDEA 中逐个配置。请将运行配置的 Working directory 保持为项目根目录；文件不存在时不会因导入本身报错，但实际使用的数据库和模型仍需有效配置。操作系统环境变量可以覆盖 `.env` 中的值。
+
+`.env` 按 Java Properties 格式解析：使用 `KEY=value`，不要加 `export`，值也不要额外包裹引号。`.env` 已被 Git 忽略，不会打包到应用中。
 
 已有表不会因修改配置自动改变维度。更换模型后需要重新生成已有文档的向量；如果维度也变化，还需迁移向量表或在备份后重建，不能直接复用旧向量。
 
 官方文档：[PgVector](https://docs.spring.io/spring-ai/reference/api/vectordbs/pgvector.html)、[OpenAI Embeddings](https://docs.spring.io/spring-ai/reference/api/embeddings/openai-embeddings.html)。
+
+### 最小入库与搜索示例
+
+`RagService.addDocuments(...)` 将文本交给 Embedding 模型生成向量后写入 PostgreSQL；`search(...)` 将问题向量化，返回最相似的 3 条文档。返回的 `Document.getText()` 是原文，`getScore()` 是相似度分数，越大表示越相近；它不是回答正确率。
+
+本地使用百炼 `qwen3.7-text-embedding`，将 `.env` 中的 `EMBEDDING_MODEL` 设置为该模型，`EMBEDDING_DIMENSIONS` 设置为 `1536`，并填写对应服务地址及密钥。标准版支持 1536 维，Flash 版不支持；切换模型或维度后，必须重新生成已有文档的向量。在 IDEA 中直接运行测试，或在项目根目录执行下面的 Maven 命令，都会自动读取 `.env`。
+
+```bash
+./mvnw -Dtest=RagServiceIT test
+```
+
+`RagServiceIT` 会保存退款、配送、账号安全三条虚构文档，再用“我前天买的东西现在不想要了，能把钱退给我吗？”检索并打印内容与分数。它调用真实 Embedding 服务，会消耗额度；默认 `mvn test` 不自动运行这个 `*IT` 示例。示例使用固定 UUID，重复运行会更新原文档，运行后保留在 `vector_store`，便于在 IDEA Database 查看。
+
+PgVector 按 `id` 执行 `INSERT ... ON CONFLICT (id) DO UPDATE`，不是按文本内容去重。相同 ID 会更新原文、metadata 和向量；相同文本使用不同 ID 仍会新增记录。每次调用 `addDocuments(...)` 都先请求 Embedding 服务，即使 ID 已存在也会消耗额度。实际项目可以在业务层按文档 ID 与内容版本判断是否需要重新入库；此示例保留完整流程，便于观察入库与检索。
+
+如果向量表仍为旧的 1024 维，应先为原文生成新的 1536 维向量，再迁移列与索引并更新向量；不要通过开启 `remove-existing-vector-store-table` 自动删除数据。
 
 Spring AI 启动时执行官方 PostgreSQL schema，创建：
 
