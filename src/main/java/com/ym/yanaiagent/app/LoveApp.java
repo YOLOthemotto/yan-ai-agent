@@ -6,7 +6,12 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.session.SessionService;
 import org.springframework.ai.session.advisor.SessionAdvisors;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
+import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
+import org.springframework.util.Assert;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -125,7 +130,11 @@ public class LoveApp {
 
     private final ChatClient chatClient;
 
-    public LoveApp(ChatClient.Builder builder, SessionService sessionService) {
+    private final ObjectProvider<VectorStore> vectorStoreProvider;
+
+    public LoveApp(ChatClient.Builder builder, SessionService sessionService,
+                   ObjectProvider<VectorStore> vectorStoreProvider) {
+        this.vectorStoreProvider = vectorStoreProvider;
         List<Advisor> advisors = new ArrayList<>(SessionAdvisors.builder(sessionService).build());
         advisors.add(new MyLoggerAdvisor());
         this.chatClient = builder
@@ -141,6 +150,31 @@ public class LoveApp {
                 .call()
                 .content();
         log.info("LoveApp sessionId={}, message={}, answer={}", sessionId, message, answer);
+        return answer;
+    }
+
+    /**
+     * 检索恋爱知识库后回答问题，沿用当前 Session 的会话记忆。
+     */
+    public String doChatWithRag(String message, String sessionId) {
+        Assert.hasText(message, "Message must not be blank");
+        VectorStore vectorStore = vectorStoreProvider.getIfAvailable();
+        Assert.state(vectorStore != null, "RAG requires the session-postgres profile and a configured VectorStore");
+        var ragAdvisor = QuestionAnswerAdvisor.builder(vectorStore)
+                .searchRequest(SearchRequest.builder()
+                        .topK(3)
+                        .similarityThreshold(0.3)
+                        .filterExpression("domain == 'love'")
+                        .build())
+                .build();
+
+        String answer = chatClient.prompt()
+                .user(message)
+                .advisors(SessionAdvisors.session(sessionId))
+                .advisors(ragAdvisor)
+                .call()
+                .content();
+        log.info("LoveApp RAG sessionId={}, message={}, answer={}", sessionId, message, answer);
         return answer;
     }
 

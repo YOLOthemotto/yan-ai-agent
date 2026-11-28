@@ -57,7 +57,7 @@ docker compose exec -T postgres sh -c 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_
 
 应用启动后会创建 `public.vector_store` 表和 HNSW 索引，使用余弦距离检索。显式指定的 `1536` 维让建表不必调用 Embedding 服务；`remove-existing-vector-store-table: false` 防止启动时删除已有向量表。表在应用首次启动时创建，而不是 Docker 启动时创建。
 
-配置文件中的 `text-embedding-3-small` 和 `1536` 维仅为预填参数。没有可用模型时可以启动应用，但调用 `VectorStore.add(...)` 或 `similaritySearch(...)` 会请求 Embedding 服务并可能失败。目前提供简单的文档入库与搜索方法，尚未接入聊天 RAG 检索。
+配置文件中的 `text-embedding-3-small` 和 `1536` 维仅为预填参数。没有可用模型时可以启动应用，但调用 `VectorStore.add(...)` 或 `similaritySearch(...)` 会请求 Embedding 服务并可能失败。`RagService` 提供文档入库与搜索，`LoveApp.doChatWithRag(...)` 将检索内容交给聊天模型生成回答。
 
 确定服务后，在运行应用的环境变量中设置：
 
@@ -93,6 +93,20 @@ Spring AI `2.1.0` 的属性是 `spring.ai.openai.embedding.model` 和 `spring.ai
 PgVector 按 `id` 执行 `INSERT ... ON CONFLICT (id) DO UPDATE`，不是按文本内容去重。相同 ID 会更新原文、metadata 和向量；相同文本使用不同 ID 仍会新增记录。每次调用 `addDocuments(...)` 都先请求 Embedding 服务，即使 ID 已存在也会消耗额度。实际项目可以在业务层按文档 ID 与内容版本判断是否需要重新入库；此示例保留完整流程，便于观察入库与检索。
 
 如果向量表仍为旧的 1024 维，应先为原文生成新的 1536 维向量，再迁移列与索引并更新向量；不要通过开启 `remove-existing-vector-store-table` 自动删除数据。
+
+### LoveApp 的 RAG 回答
+
+`doChatWithRag(message, sessionId)` 通过 Spring AI `QuestionAnswerAdvisor` 检索最多 3 条相似度不低于 `0.3`、metadata 满足 `domain == 'love'` 的文档，将原文追加到模型上下文，再生成回答。它沿用 Session 记忆；原有 `doChat` 和 `doChatWithReport` 不启用 RAG。该阈值仅为演示起点，应根据实际检索结果调整。
+
+`VectorStore` 通过 `ObjectProvider` 延迟获取，让 H2、文件模式的普通聊天仍可启动；在这些模式调用 RAG 会明确报错。后续导入恋爱知识时也需要设置 `domain=love`，否则不会被该方法检索到。没有足够相关内容时，Advisor 默认提示模型说明无法从上下文回答。
+
+在 IDEA 中运行 `LoveAppTest.doChatWithRag`，或执行：
+
+```bash
+./mvnw '-Dtest=LoveAppTest#doChatWithRag' test
+```
+
+测试先将日常陪伴、争吵沟通、异地联系三条示例入库，再请求模型回答日常陪伴问题。断言回答包含示例知识库自定义的“晚安十分钟”，用于观察模型是否利用检索内容；该名称是演示用练习，并非经过验证的心理学疗法。示例文档使用固定 UUID，重复运行更新原记录，运行后保留在数据库。此测试使用真实 Embedding 和聊天服务，会消耗额度。
 
 Spring AI 启动时执行官方 PostgreSQL schema，创建：
 
